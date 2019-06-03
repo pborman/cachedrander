@@ -66,6 +66,11 @@ func New(r io.Reader, size int) (*CachedReader, error) {
 	return nr, nil
 }
 
+const (
+	indexBits = 63
+	indexMask = (1 << indexBits) - 1
+)
+
 // Read fills buf with cached data
 func (r *CachedReader) Read(buf []byte) (int, error) {
 	if len(buf) > r.Max {
@@ -74,8 +79,8 @@ func (r *CachedReader) Read(buf []byte) (int, error) {
 	blen := uint64(len(buf))
 	for {
 		ai := atomic.AddUint64(&r.index, blen)
-		page := int(ai >> 63)
-		i := ai & 0xffffffff
+		page := int(ai >> indexBits)
+		i := ai & indexMask
 		if i-blen <= r.size {
 			return copy(buf, r.pages[page][i-blen:]), nil
 		}
@@ -90,10 +95,10 @@ func (r *CachedReader) fill() error {
 	r.mu.Lock()
 	ai := atomic.LoadUint64(&r.index)
 	var err error
-	if (ai & 0xffffffff) > r.size {
-		page := (ai >> 63) ^ 1
+	if (ai & indexMask) > r.size {
+		page := (ai >> indexBits) ^ 1
 		_, err = io.ReadFull(r.r, r.pages[page])
-		atomic.StoreUint64(&r.index, uint64(page)<<63)
+		atomic.StoreUint64(&r.index, uint64(page)<<indexBits)
 	}
 	r.mu.Unlock()
 	return err
